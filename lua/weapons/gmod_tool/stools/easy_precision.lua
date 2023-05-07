@@ -24,14 +24,14 @@ if CLIENT then
     language.Add( "tool.easy_precision.right", "Cancel" )
     language.Add( "tool.easy_precision.reload", "Snap a object's position/rotation to the grid" )
 
-    language.Add( "tool.easy_precision.follow_grid", "Snap cursor to the grid" )
+    language.Add( "tool.easy_precision.follow_grid", "Snap cursor to the grid (Only applies to the world)" )
     language.Add( "tool.easy_precision.grid_x", "Grid Size (X)" )
     language.Add( "tool.easy_precision.grid_y", "Grid Size (Y)" )
     language.Add( "tool.easy_precision.grid_z", "Grid Size (Z)" )
 
     language.Add( "tool.easy_precision.grid_z.help", [[The grid size has an effect on:
 - The Reload button
-- The cursor, if "Snap cursor to the grid" is enabled"]] )
+- The cursor, if "Snap cursor to the grid" is enabled]] )
 end
 
 local function Snap( num, grid )
@@ -224,7 +224,8 @@ function TOOL:LeftClick( trace )
         ghost:SetMoveType( MOVETYPE_NONE )
         ghost:SetNotSolid( true )
         ghost:SetRenderMode( RENDERMODE_TRANSCOLOR )
-        ghost:SetColor( Color( 255, 255, 255, 150 ) )
+        ghost:SetMaterial( "debug/debugdrawflat" )
+        ghost:SetColor( Color( 255, 255, 255, 50 ) )
         ghost:DrawShadow( false )
 
         self.moveGhost = ghost
@@ -285,6 +286,8 @@ function TOOL:Reload( trace )
     return true
 end
 
+if not CLIENT then return end
+
 function TOOL.BuildCPanel( p )
     p:AddControl( "Header", { Description = "#tool.easy_precision.desc" } )
     p:AddControl( "CheckBox", { Label = "#tool.easy_precision.follow_grid", Command = "easy_precision_follow_grid" } )
@@ -292,4 +295,50 @@ function TOOL.BuildCPanel( p )
     p:AddControl( "Slider", { Label = "#tool.easy_precision.grid_x", Command = "easy_precision_grid_x", Type = "Float", Min = 0.01, Max = 1000 } )
     p:AddControl( "Slider", { Label = "#tool.easy_precision.grid_y", Command = "easy_precision_grid_y", Type = "Float", Min = 0.01, Max = 1000 } )
     p:AddControl( "Slider", { Label = "#tool.easy_precision.grid_z", Command = "easy_precision_grid_z", Type = "Float", Min = 0.01, Max = 1000, Help = true } )
+end
+
+local GRID = {
+    color = Color( 50, 100, 255 ),
+    points = 3
+}
+
+function TOOL:DrawHUD()
+    local tr = LocalPlayer():GetEyeTrace()
+    if not tr.Hit then return end
+    if IsValid( tr.Entity ) then return end
+    if self:GetClientNumber( "follow_grid", 0 ) == 0 then return end
+
+    local pos = tr.HitPos
+
+    local gridX = self:GetClientNumber( "grid_x", 10 )
+    local gridY = self:GetClientNumber( "grid_y", 10 )
+    local gridZ = self:GetClientNumber( "grid_z", 1 )
+
+    pos.x = Snap( pos.x, gridX * GRID.points * 2 )
+    pos.y = Snap( pos.y, gridY * GRID.points * 2 )
+    pos.z = Snap( pos.z, gridZ * GRID.points )
+
+    cam.Start3D()
+
+    local tall = gridY * GRID.points
+
+    for x = -GRID.points, GRID.points do
+        render.DrawLine(
+            pos + Vector( x * gridX, -tall, 0 ),
+            pos + Vector( x * gridX, tall, 0 ),
+            GRID.color, true
+        )
+    end
+
+    local wide = gridX * GRID.points
+
+    for y = -GRID.points, GRID.points do
+        render.DrawLine(
+            pos + Vector( -wide, y * gridY, 0 ),
+            pos + Vector( wide, y * gridY, 0 ),
+            GRID.color, true
+        )
+    end
+
+    cam.End3D()
 end
