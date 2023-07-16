@@ -5,7 +5,9 @@ TOOL.ClientConVar = {
     follow_grid = "0",
     grid_x = "10",
     grid_y = "10",
-    grid_z = "1"
+    grid_z = "1",
+    nocollide = "1",
+    weld = "0"
 }
 
 if CLIENT then
@@ -123,6 +125,38 @@ function TOOL:ResetStage()
     end
 end
 
+function TOOL:ApplyConstraints( ent1, ent2 )
+    if not ( IsValid( ent1 ) and IsValid( ent2 ) ) then return end
+
+    local nocollide = self:GetClientNumber( "nocollide", 0 ) > 0
+    local weld = self:GetClientNumber( "weld", 0 ) > 0
+
+    if weld then
+        local constr = constraint.Weld( ent1, ent2, 0, 0, 0, nocollide )
+
+        if IsValid( constr ) then
+            undo.Create( "Weld" )
+            undo.AddEntity( constr )
+            undo.SetPlayer( self:GetOwner() )
+            undo.Finish()
+
+            self:GetOwner():AddCleanup( "constraints", constr )
+        end
+
+    elseif nocollide then
+        local constr = constraint.NoCollide( ent1, ent2, 0, 0 )
+
+        if IsValid( constr ) then
+            undo.Create( "NoCollide" )
+            undo.AddEntity( constr )
+            undo.SetPlayer( self:GetOwner() )
+            undo.Finish()
+
+            self:GetOwner():AddCleanup( "nocollide", constr )
+        end
+    end
+end
+
 function TOOL:Think()
     if self.moveEntity and not IsValid( self.moveEntity ) then
         self:ResetStage()
@@ -192,6 +226,8 @@ function TOOL:LeftClick( trace )
 
             self.moveEntity:SetPos( self.moveEntity:LocalToWorld( offset ) )
             self.moveEntity:SetAngles( self.moveAngles )
+
+            self:ApplyConstraints( self.moveEntity, ent )
         end
 
         self:ResetStage()
@@ -295,6 +331,9 @@ function TOOL.BuildCPanel( p )
     p:AddControl( "Slider", { Label = "#tool.easy_precision.grid_x", Command = "easy_precision_grid_x", Type = "Float", Min = 0.01, Max = 1000 } )
     p:AddControl( "Slider", { Label = "#tool.easy_precision.grid_y", Command = "easy_precision_grid_y", Type = "Float", Min = 0.01, Max = 1000 } )
     p:AddControl( "Slider", { Label = "#tool.easy_precision.grid_z", Command = "easy_precision_grid_z", Type = "Float", Min = 0.01, Max = 1000, Help = true } )
+
+    p:AddControl( "CheckBox", { Label = "#tool.nocollide", Command = "easy_precision_nocollide" } )
+    p:AddControl( "CheckBox", { Label = "#tool.weld.name", Command = "easy_precision_weld" } )
 end
 
 local GRID = {
