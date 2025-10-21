@@ -132,6 +132,9 @@ function TOOL:ApplyConstraints( ent1, ent2 )
     local weld = self:GetClientNumber( "weld", 0 ) > 0
 
     if weld then
+        local owner = self:GetOwner()
+        if not owner:CheckLimit( "constraints" ) then return end
+
         local constr = constraint.Weld( ent1, ent2, 0, 0, 0, nocollide )
 
         if IsValid( constr ) then
@@ -140,10 +143,14 @@ function TOOL:ApplyConstraints( ent1, ent2 )
             undo.SetPlayer( self:GetOwner() )
             undo.Finish()
 
-            self:GetOwner():AddCleanup( "constraints", constr )
+            owner:AddCount( "constraints", constr )
+            owner:AddCleanup( "constraints", constr )
         end
 
     elseif nocollide then
+        local owner = self:GetOwner()
+        if not owner:CheckLimit( "constraints" ) then return end
+
         local constr = constraint.NoCollide( ent1, ent2, 0, 0 )
 
         if IsValid( constr ) then
@@ -152,7 +159,8 @@ function TOOL:ApplyConstraints( ent1, ent2 )
             undo.SetPlayer( self:GetOwner() )
             undo.Finish()
 
-            self:GetOwner():AddCleanup( "nocollide", constr )
+            owner:AddCount( "constraints", constr )
+            owner:AddCleanup( "nocollide", constr )
         end
     end
 end
