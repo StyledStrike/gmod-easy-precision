@@ -126,6 +126,11 @@ function TOOL:LeftClick( trace )
 
             local phys = selectedEnt:GetPhysicsObject()
             phys:EnableMotion( false )
+
+            -- Apply constraints if we clicked on another entity
+            if IsValid( ent ) and ent ~= selectedEnt then
+                self:ApplyConstraints( selectedEnt, ent )
+            end
         end
 
         self:ClearObjects()
