@@ -326,7 +326,7 @@ net.Receive( "easy_precision.state", function()
     if not state then
         -- It seems like "TOOL:Deploy" does not get called client-side
         -- if this tool is the first one being selected after the player spawned.
-        -- This causes `syncState` to be `nil, so this is a workaround.
+        -- This causes `syncState` to be `nil`, so this is a workaround.
         state = {}
         tool.syncState = state
     end
