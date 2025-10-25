@@ -2,12 +2,17 @@ TOOL.Category = "Construction"
 TOOL.Name = "#tool.easy_precision.name"
 
 TOOL.ClientConVar = {
-    follow_grid = "0",
-    grid_x = "10",
-    grid_y = "10",
-    grid_z = "1",
-    nocollide = "1",
-    weld = "0"
+    constraint_weld = "0",
+    constraint_nocollide = "1",
+    stick_cursor_to_grid = "1",
+
+    grid_snap_x = "10",
+    grid_snap_y = "10",
+    grid_snap_z = "10",
+
+    angle_snap_x = "45",
+    angle_snap_y = "45",
+    angle_snap_z = "45",
 }
 
 if CLIENT then
@@ -15,277 +20,129 @@ if CLIENT then
         { name = "left", stage = 0 },
         { name = "left_1", stage = 1 },
         { name = "right", stage = 1 },
-        { name = "reload" }
+        { name = "reload" },
+        { name = "reload_use", icon2 = "gui/e.png" }
     }
-
-    language.Add( "tool.easy_precision.name", "Easy Precision" )
-    language.Add( "tool.easy_precision.desc", "Precisely move a prop to another with just two clicks" )
-
-    language.Add( "tool.easy_precision.left", "Select an object to move" )
-    language.Add( "tool.easy_precision.left_1", "Move object here" )
-    language.Add( "tool.easy_precision.right", "Cancel" )
-    language.Add( "tool.easy_precision.reload", "Snap a object's position/rotation to the grid" )
-
-    language.Add( "tool.easy_precision.follow_grid", "Snap cursor to the grid (Only applies to the world)" )
-    language.Add( "tool.easy_precision.grid_x", "Grid Size (X)" )
-    language.Add( "tool.easy_precision.grid_y", "Grid Size (Y)" )
-    language.Add( "tool.easy_precision.grid_z", "Grid Size (Z)" )
-
-    language.Add( "tool.easy_precision.grid_z.help", [[The grid size has an effect on:
-- The Reload button
-- The cursor, if "Snap cursor to the grid" is enabled]] )
 end
 
-local function Snap( num, grid )
-    return math.Round( num / grid ) * grid
+local IsValid = IsValid
+
+local function SnapToGrid( value, gridSpacing )
+    return math.Round( value / gridSpacing ) * gridSpacing
 end
 
 local function GetAABBSize( ent )
-    local ret, ret2 = ent:GetPhysicsObject():GetAABB()
-    ret = ret or vector_origin
-    ret2 = ret2 or vector_origin
-    return ret2 - ret
+    local phys = ent:GetPhysicsObject()
+    if not IsValid( phys ) then return end
+
+    local mins, maxs = phys:GetAABB()
+    if not mins or not maxs then return end
+
+    return maxs - mins
 end
 
-local function GetCursorPosOnEntity( ent, from )
-    -- convert "from" to the ent's local coords,
-    -- but using the bounding box center as the origin
-
-    local boxCenter = ent:LocalToWorld( ent:OBBCenter() )
-    local pos, _ = WorldToLocal( from, angle_zero, boxCenter, ent:GetAngles() )
-
-    local size = GetAABBSize( ent )
-    local snapSize = size * 0.5
-
-    pos.x = Snap( pos.x, snapSize.x )
-    pos.y = Snap( pos.y, snapSize.y )
-    pos.z = Snap( pos.z, snapSize.z )
-
-    -- convert the local pos to world,
-    -- but using the bounding box center as the origin
-    pos, _ = LocalToWorld( pos, angle_zero, boxCenter, ent:GetAngles() )
-
-    return pos
-end
-
-local function GetTraceEntity( trace )
-    local ent = trace.Entity
-
-    if IsValid( ent ) and not ent:IsPlayer() and not ent:IsRagdoll() then
-        local phys = ent:GetPhysicsObject()
-
-        if IsValid( phys ) then
-            return ent
-        end
-    end
-end
-
-function TOOL:GetCursorPos()
-    local trace = self:GetOwner():GetEyeTrace()
-
-    if trace.Hit then
-        local pos = trace.HitPos
-        local ent = GetTraceEntity( trace )
-
-        if IsValid( ent ) then
-            pos = GetCursorPosOnEntity( ent, pos )
-
-        elseif self:GetClientNumber( "follow_grid", 0 ) > 0 then
-            pos.x = Snap( pos.x, self:GetClientNumber( "grid_x", 10 ) )
-            pos.y = Snap( pos.y, self:GetClientNumber( "grid_y", 10 ) )
-            pos.z = Snap( pos.z, self:GetClientNumber( "grid_z", 1 ) )
-        end
-
-        return pos
-    end
-
-    return trace.StartPos
-end
-
-function TOOL:SetCursorColor( color )
-    if IsValid( self.cursorEnt ) then
-        self.cursorEnt:SetColor( color )
-    end
-end
-
-function TOOL:ResetStage()
-    self:SetStage( 0 )
+local function IsValidEntity( ent )
+    if not IsValid( ent ) then return false end
+    if ent:IsPlayer() or ent:IsRagdoll() then return false end
 
     if SERVER then
-        if IsValid( self.moveGhost ) then
-            self.moveGhost:Remove()
-        end
-
-        self.moveGhost = nil
-        self.moveEntity = nil
-        self.moveOffset = nil
-        self.moveAngles = nil
-
-        self:SetCursorColor( color_white )
-    end
-end
-
-function TOOL:ApplyConstraints( ent1, ent2 )
-    if not ( IsValid( ent1 ) and IsValid( ent2 ) ) then return end
-
-    local nocollide = self:GetClientNumber( "nocollide", 0 ) > 0
-    local weld = self:GetClientNumber( "weld", 0 ) > 0
-
-    if weld then
-        local owner = self:GetOwner()
-        if not owner:CheckLimit( "constraints" ) then return end
-
-        local constr = constraint.Weld( ent1, ent2, 0, 0, 0, nocollide )
-
-        if IsValid( constr ) then
-            undo.Create( "Weld" )
-            undo.AddEntity( constr )
-            undo.SetPlayer( self:GetOwner() )
-            undo.Finish()
-
-            owner:AddCount( "constraints", constr )
-            owner:AddCleanup( "constraints", constr )
-        end
-
-    elseif nocollide then
-        local owner = self:GetOwner()
-        if not owner:CheckLimit( "constraints" ) then return end
-
-        local constr = constraint.NoCollide( ent1, ent2, 0, 0 )
-
-        if IsValid( constr ) then
-            undo.Create( "NoCollide" )
-            undo.AddEntity( constr )
-            undo.SetPlayer( self:GetOwner() )
-            undo.Finish()
-
-            owner:AddCount( "constraints", constr )
-            owner:AddCleanup( "nocollide", constr )
-        end
-    end
-end
-
-function TOOL:Think()
-    if self.moveEntity and not IsValid( self.moveEntity ) then
-        self:ResetStage()
-        return
-    end
-
-    if not SERVER then return end
-
-    local cursorPos = self:GetCursorPos()
-
-    if IsValid( self.cursorEnt ) then
-        self.cursorEnt:SetPos( cursorPos )
-    end
-
-    if IsValid( self.moveGhost ) then
-        local localCursor = self.moveGhost:WorldToLocal( cursorPos )
-        local offset = localCursor - self.moveOffset
-
-        self.moveGhost:SetPos( self.moveGhost:LocalToWorld( offset ) )
-    end
-end
-
-function TOOL:Deploy()
-    -- we dont use the cursor clientside because
-    -- its location might depend on a physobj
-    if SERVER then
-        local ent = ents.Create( "prop_physics" )
-        if not IsValid( ent ) then return end
-
-        ent:SetModel( "models/editor/axis_helper.mdl" )
-        ent:SetPos( Vector() )
-        ent:SetAngles( angle_zero )
-        ent:Spawn()
-
-        ent:PhysicsDestroy()
-        ent:SetMoveType( MOVETYPE_NONE )
-        ent:SetNotSolid( true )
-        ent:SetRenderMode( RENDERMODE_NORMAL )
-        ent:SetMaterial( "debug/debugdrawflat" )
-        ent:SetColor( color_white )
-        ent:DrawShadow( false )
-
-        self.cursorEnt = ent
-    end
-end
-
-function TOOL:Holster()
-    self:ResetStage()
-
-    if SERVER then
-        if IsValid( self.cursorEnt ) then
-            self.cursorEnt:Remove()
-        end
-
-        self.cursorEnt = nil
-    end
-end
-
-function TOOL:LeftClick( trace )
-    local stage = self:GetStage()
-    local ent = GetTraceEntity( trace )
-
-    if stage > 0 then
-        if SERVER then
-            local localCursor = self.moveEntity:WorldToLocal( self:GetCursorPos() )
-            local offset = localCursor - self.moveOffset
-
-            self.moveEntity:SetPos( self.moveEntity:LocalToWorld( offset ) )
-            self.moveEntity:SetAngles( self.moveAngles )
-
-            self:ApplyConstraints( self.moveEntity, ent )
-        end
-
-        self:ResetStage()
-
-        return true
-    end
-
-    if not ent then
-        -- almost correct feedback on the client
-        if CLIENT and IsValid( trace.Entity ) then
-            return true
-        end
-
-        return
-    end
-
-    self:SetStage( 1 )
-
-    if SERVER then
-        local cursorPos = GetCursorPosOnEntity( ent, trace.HitPos )
-        local offset = ent:WorldToLocal( cursorPos )
-
-        local ghost = ents.Create( "prop_physics" )
-        ghost:SetModel( ent:GetModel() )
-        ghost:SetPos( ent:GetPos() )
-        ghost:SetAngles( ent:GetAngles() )
-        ghost:Spawn()
-
-        ghost:PhysicsDestroy()
-        ghost:SetMoveType( MOVETYPE_NONE )
-        ghost:SetNotSolid( true )
-        ghost:SetRenderMode( RENDERMODE_TRANSCOLOR )
-        ghost:SetMaterial( "debug/debugdrawflat" )
-        ghost:SetColor( Color( 255, 255, 255, 50 ) )
-        ghost:DrawShadow( false )
-
-        self.moveGhost = ghost
-        self.moveEntity = ent
-        self.moveOffset = offset
-        self.moveAngles = ent:GetAngles()
-
-        self:SetCursorColor( Color( 0, 255, 255 ) )
+        return GetAABBSize( ent ) ~= nil
     end
 
     return true
 end
 
+local function GetTraceEntity( trace )
+    local ent = trace.Entity
+
+    if IsValidEntity( ent ) then
+        return ent
+    end
+end
+
+local WorldToLocal = WorldToLocal
+local LocalToWorld = LocalToWorld
+
+local function GetNearestEdge( ent, aabbSize, worldPos )
+    -- Convert the position to the ent's local coords,
+    -- using the bounding box center as the origin.
+    local boxCenter = ent:LocalToWorld( ent:OBBCenter() )
+    local pos = WorldToLocal( worldPos, Angle(), boxCenter, ent:GetAngles() )
+
+    -- Snap the local position to the nearest AABB edge
+    local snapSize = aabbSize * 0.5
+
+    pos[1] = SnapToGrid( pos[1], snapSize[1] )
+    pos[2] = SnapToGrid( pos[2], snapSize[2] )
+    pos[3] = SnapToGrid( pos[3], snapSize[3] )
+
+    -- Convert the snapped position back to world coords,
+    -- also using the bounding box center as the origin.
+    pos, _ = LocalToWorld( pos, Angle(), boxCenter, ent:GetAngles() )
+
+    return pos
+end
+
+function TOOL:LeftClick( trace )
+    local stage = self:GetStage()
+    local ent = GetTraceEntity( trace )
+    local success = false
+
+    if stage == 0 and ent then
+        success = true
+
+        if SERVER then
+            -- Get where the snapped cursor is placed on the entity
+            local cursorPos = GetNearestEdge( ent, GetAABBSize( ent ), trace.HitPos )
+
+            -- Remember the entity and where the cursor was on it
+            self:SetObject( 1, ent, cursorPos, nil, 0, Vector( 0, 0, 1 ) )
+            self:SetStage( 1 )
+        end
+
+    elseif stage == 1 then
+        if SERVER then
+            -- Find out where the cursor is right now
+            local cursorPos = trace.HitPos
+
+            if IsValid( ent ) then
+                -- Snap cursor to the edge of the current entity being aimed at
+                cursorPos = GetNearestEdge( ent, GetAABBSize( ent ), cursorPos )
+
+            elseif self:GetClientNumber( "stick_cursor_to_grid", 0 ) > 0 then
+                -- Snap cursor to grid, if enabled
+                cursorPos[1] = SnapToGrid( cursorPos[1], self:GetClientNumber( "grid_snap_x", 10 ) )
+                cursorPos[2] = SnapToGrid( cursorPos[2], self:GetClientNumber( "grid_snap_y", 10 ) )
+                cursorPos[3] = SnapToGrid( cursorPos[3], self:GetClientNumber( "grid_snap_z", 10 ) )
+            end
+
+            -- Move the entity to the current cursor position, plus
+            -- the the cursor offset from the entity was first selected.
+            local selectedEnt = self:GetEnt( 1 )
+            local firstCursorPos = self:GetPos( 1 )
+            local offset = selectedEnt:GetPos() - firstCursorPos
+
+            selectedEnt:SetPos( cursorPos + offset )
+
+            local phys = selectedEnt:GetPhysicsObject()
+            phys:EnableMotion( false )
+
+            -- Apply constraints if we clicked on another entity
+            if IsValid( ent ) and ent ~= selectedEnt then
+                self:ApplyConstraints( selectedEnt, ent )
+            end
+        end
+
+        self:ClearObjects()
+        success = true
+    end
+
+    return success
+end
+
 function TOOL:RightClick()
     if self:GetStage() > 0 then
-        self:ResetStage()
+        self:ClearObjects()
 
         return true
     end
@@ -294,98 +151,289 @@ end
 function TOOL:Reload( trace )
     local ent = GetTraceEntity( trace )
 
-    if not ent then
-        -- almost correct feedback on the client
-        if CLIENT and IsValid( trace.Entity ) then
-            return true
-        end
-
-        return
-    end
-
     if SERVER then
         local phys = ent:GetPhysicsObject()
+        phys:EnableMotion( false )
 
-        if IsValid( phys ) then
-            phys:EnableMotion( false )
+        local owner = self:GetOwner()
+
+        if owner:KeyDown( IN_USE ) then
+            ent:SetAngles( Angle( 0, 0, 0 ) )
+        else
+            local ang = ent:GetAngles()
+
+            ang[1] = SnapToGrid( ang[1], self:GetClientNumber( "angle_snap_x", 45 ) )
+            ang[2] = SnapToGrid( ang[2], self:GetClientNumber( "angle_snap_y", 45 ) )
+            ang[3] = SnapToGrid( ang[3], self:GetClientNumber( "angle_snap_z", 45 ) )
+
+            ent:SetAngles( ang )
         end
-
-        local ang = ent:GetAngles()
-
-        ent:SetAngles( Angle(
-            Snap( ang.pitch, 10 ),
-            Snap( ang.yaw, 10 ),
-            Snap( ang.roll, 10 )
-        ) )
 
         local pos = ent:GetPos()
 
-        pos.x = Snap( pos.x, self:GetClientNumber( "grid_x", 10 ) )
-        pos.y = Snap( pos.y, self:GetClientNumber( "grid_y", 10 ) )
-        pos.z = Snap( pos.z, self:GetClientNumber( "grid_z", 1 ) )
+        pos[1] = SnapToGrid( pos[1], self:GetClientNumber( "grid_snap_x", 10 ) )
+        pos[2] = SnapToGrid( pos[2], self:GetClientNumber( "grid_snap_y", 10 ) )
+        pos[3] = SnapToGrid( pos[3], self:GetClientNumber( "grid_snap_z", 10 ) )
 
         ent:SetPos( pos )
     end
 
-    return true
+    return IsValid( ent )
+end
+
+function TOOL:Deploy()
+    self:ClearObjects()
+    self.syncState = {}
+end
+
+function TOOL:Holster()
+    self:ClearObjects()
+    self.syncState = nil
+
+    if CLIENT and IsValid( self.ghostEnt ) then
+        self.ghostEnt:Remove()
+        self.ghostEnt = nil
+    end
+end
+
+if SERVER then
+    util.AddNetworkString( "easy_precision.state" )
+
+    function TOOL:ApplyConstraints( entA, entB )
+        if not ( IsValid( entA ) and IsValid( entB ) ) then return end
+
+        local owner = self:GetOwner()
+        if not owner:CheckLimit( "constraints" ) then return end
+
+        local doNoCollide = self:GetClientNumber( "constraint_nocollide", 0 ) > 0
+        local doWeld = self:GetClientNumber( "constraint_weld", 0 ) > 0
+
+        if doWeld then
+            local c = constraint.Weld( entA, entB, 0, 0, 0, doNoCollide )
+            if not IsValid( c ) then return end
+
+            undo.Create( "Weld" )
+            undo.SetPlayer( owner )
+            undo.AddEntity( c )
+            undo.Finish()
+
+            owner:AddCount( "constraints", c )
+            owner:AddCleanup( "constraints", c )
+
+        elseif doNoCollide then
+            local c = constraint.NoCollide( entA, entB, 0, 0 )
+            if not IsValid( c ) then return end
+
+            undo.Create( "NoCollide" )
+            undo.SetPlayer( owner )
+            undo.AddEntity( c )
+            undo.Finish()
+
+            owner:AddCount( "constraints", c )
+            owner:AddCleanup( "nocollide", c )
+        end
+    end
+
+    function TOOL:Think()
+        local owner = self:GetOwner()
+        if not IsValid( owner ) then return end
+
+        local state = self.syncState
+        if not state then return end
+
+        -- The tool's client-side needs to know the server-side state,
+        -- to place the cursor and ghost correctly on the screen.
+        -- We do it here periodically, trying to avoid spamming the net event.
+        local t = RealTime()
+
+        if state.isDirty and t > ( state.nextSync or 0 ) then
+            state.isDirty = false
+            state.nextSync = t + 0.2
+
+            net.Start( "easy_precision.state", false )
+
+            if IsValid( state.aimEnt ) then
+                net.WriteEntity( state.aimEnt )
+
+                local phys = state.aimEnt:GetPhysicsObject()
+                local mins, maxs = phys:GetAABB()
+                local size = maxs - mins
+
+                net.WriteFloat( size[1] )
+                net.WriteFloat( size[2] )
+                net.WriteFloat( size[3] )
+            else
+                net.WriteEntity( NULL )
+            end
+
+            local selectedEnt = self:GetEnt( 1 )
+
+            if IsValid( selectedEnt ) then
+                net.WriteEntity( selectedEnt )
+
+                local firstCursorPos = self:GetLocalPos( 1 )
+
+                net.WriteFloat( firstCursorPos[1] )
+                net.WriteFloat( firstCursorPos[2] )
+                net.WriteFloat( firstCursorPos[3] )
+            else
+                net.WriteEntity( NULL )
+            end
+
+            net.Send( owner )
+        end
+
+        local aimEnt = GetTraceEntity( owner:GetEyeTrace() )
+
+        if state.aimEnt ~= aimEnt then
+            state.aimEnt = aimEnt
+            state.isDirty = true
+        end
+
+        local selectedEnt = self:GetEnt( 1 )
+
+        if state.selectedEnt ~= selectedEnt then
+            state.selectedEnt = selectedEnt
+            state.isDirty = true
+        end
+    end
 end
 
 if not CLIENT then return end
 
 function TOOL.BuildCPanel( p )
     p:AddControl( "Header", { Description = "#tool.easy_precision.desc" } )
-    p:AddControl( "CheckBox", { Label = "#tool.easy_precision.follow_grid", Command = "easy_precision_follow_grid" } )
 
-    p:AddControl( "Slider", { Label = "#tool.easy_precision.grid_x", Command = "easy_precision_grid_x", Type = "Float", Min = 0.01, Max = 1000 } )
-    p:AddControl( "Slider", { Label = "#tool.easy_precision.grid_y", Command = "easy_precision_grid_y", Type = "Float", Min = 0.01, Max = 1000 } )
-    p:AddControl( "Slider", { Label = "#tool.easy_precision.grid_z", Command = "easy_precision_grid_z", Type = "Float", Min = 0.01, Max = 1000, Help = true } )
+    p:AddControl( "CheckBox", { Label = "#tool.weld.name", Command = "easy_precision_constraint_weld" } )
+    p:AddControl( "CheckBox", { Label = "#tool.nocollide", Command = "easy_precision_constraint_nocollide" } )
+    p:AddControl( "CheckBox", { Label = "#tool.easy_precision.stick_cursor_to_grid", Command = "easy_precision_stick_cursor_to_grid" } )
 
-    p:AddControl( "CheckBox", { Label = "#tool.nocollide", Command = "easy_precision_nocollide" } )
-    p:AddControl( "CheckBox", { Label = "#tool.weld.name", Command = "easy_precision_weld" } )
+    p:AddControl( "Slider", { Label = "#tool.easy_precision.grid_snap_x", Command = "easy_precision_grid_snap_x", Type = "Float", Min = 0.1, Max = 1000 } )
+    p:AddControl( "Slider", { Label = "#tool.easy_precision.grid_snap_y", Command = "easy_precision_grid_snap_y", Type = "Float", Min = 0.1, Max = 1000 } )
+    p:AddControl( "Slider", { Label = "#tool.easy_precision.grid_snap_z", Command = "easy_precision_grid_snap_z", Type = "Float", Min = 0.1, Max = 1000 } )
+
+    p:AddControl( "Slider", { Label = "#tool.easy_precision.angle_snap_x", Command = "easy_precision_angle_snap_x", Type = "Float", Min = 1, Max = 180 } )
+    p:AddControl( "Slider", { Label = "#tool.easy_precision.angle_snap_y", Command = "easy_precision_angle_snap_y", Type = "Float", Min = 1, Max = 180 } )
+    p:AddControl( "Slider", { Label = "#tool.easy_precision.angle_snap_z", Command = "easy_precision_angle_snap_z", Type = "Float", Min = 1, Max = 180 } )
 end
 
-local GRID = {
-    color = Color( 50, 100, 255 ),
-    points = 3
+net.Receive( "easy_precision.state", function()
+    local tool = LocalPlayer():GetTool( "easy_precision" )
+    if not tool then return end
+
+    local state = tool.syncState
+
+    if not state then
+        -- It seems like "TOOL:Deploy" does not get called client-side
+        -- if this tool is the first one being selected after the player spawned.
+        -- This causes `syncState` to be `nil`, so this is a workaround.
+        state = {}
+        tool.syncState = state
+    end
+
+    state.aimEnt = net.ReadEntity()
+    state.aimEntAABBSize = nil
+
+    if IsValid( state.aimEnt ) then
+        state.aimEntAABBSize = Vector(
+            net.ReadFloat(),
+            net.ReadFloat(),
+            net.ReadFloat()
+        )
+    end
+
+    state.selectedEnt = net.ReadEntity()
+
+    if IsValid( state.selectedEnt ) then
+        state.selectedEntFirstCursor = Vector(
+            net.ReadFloat(),
+            net.ReadFloat(),
+            net.ReadFloat()
+        )
+    end
+end )
+
+local cursor = {
+    pivotColor = Color( 50, 50, 50 ),
+    aimColor = Color( 0, 150, 255 ),
+    selectedColor = Color( 50, 255, 0 ),
 }
 
 function TOOL:DrawHUD()
-    local tr = LocalPlayer():GetEyeTrace()
-    if not tr.Hit then return end
-    if IsValid( tr.Entity ) then return end
-    if self:GetClientNumber( "follow_grid", 0 ) == 0 then return end
+    local state = self.syncState
+    if not state then return end
 
-    local pos = tr.HitPos
+    local user = LocalPlayer()
+    local trace = user:GetEyeTrace()
 
-    local gridX = self:GetClientNumber( "grid_x", 10 )
-    local gridY = self:GetClientNumber( "grid_y", 10 )
-    local gridZ = self:GetClientNumber( "grid_z", 1 )
+    local stage = self:GetStage()
+    local cursorPos
 
-    pos.x = Snap( pos.x, gridX * GRID.points * 2 )
-    pos.y = Snap( pos.y, gridY * GRID.points * 2 )
-    pos.z = Snap( pos.z, gridZ * GRID.points )
+    if IsValid( state.aimEnt ) and state.aimEnt == GetTraceEntity( trace ) then
+        cursorPos = GetNearestEdge( state.aimEnt, state.aimEntAABBSize, trace.HitPos )
 
-    cam.Start3D()
+    elseif stage > 0 then
+        cursorPos = trace.HitPos
 
-    local tall = gridY * GRID.points
-
-    for x = -GRID.points, GRID.points do
-        render.DrawLine(
-            pos + Vector( x * gridX, -tall, 0 ),
-            pos + Vector( x * gridX, tall, 0 ),
-            GRID.color, true
-        )
+        if self:GetClientNumber( "stick_cursor_to_grid", 0 ) > 0 then
+            cursorPos[1] = SnapToGrid( cursorPos[1], self:GetClientNumber( "grid_snap_x", 10 ) )
+            cursorPos[2] = SnapToGrid( cursorPos[2], self:GetClientNumber( "grid_snap_y", 10 ) )
+            cursorPos[3] = SnapToGrid( cursorPos[3], self:GetClientNumber( "grid_snap_z", 10 ) )
+        end
     end
 
-    local wide = gridX * GRID.points
+    if cursorPos then
+        local pulse = 0.6 + math.sin( RealTime() * 8 ) * 0.4
+        local color = stage > 0 and cursor.selectedColor or cursor.aimColor
 
-    for y = -GRID.points, GRID.points do
-        render.DrawLine(
-            pos + Vector( -wide, y * gridY, 0 ),
-            pos + Vector( wide, y * gridY, 0 ),
-            GRID.color, true
-        )
+        cam.Start3D()
+        render.SetColorMaterialIgnoreZ()
+        render.SetColorModulation( 0, pulse * 0.3, pulse )
+        render.SuppressEngineLighting( true )
+
+        render.DrawSphere( cursorPos, 1.5, 6, 6, cursor.pivotColor )
+        render.DrawSphere( cursorPos, 1, 6, 6, color )
+
+        local offset = Vector( 15, 0, 0 )
+        render.DrawLine( cursorPos - offset, cursorPos + offset, color, false )
+
+        offset[1] = 0
+        offset[2] = 15
+        render.DrawLine( cursorPos - offset, cursorPos + offset, color, false )
+
+        offset[2] = 0
+        offset[3] = 15
+        render.DrawLine( cursorPos - offset, cursorPos + offset, color, false )
+
+        render.SuppressEngineLighting( false )
+        render.SetColorModulation( 1, 1, 1 )
+        cam.End3D()
     end
 
-    cam.End3D()
+    local selectedEnt = state.selectedEnt
+
+    if cursorPos and IsValid( selectedEnt ) then
+        local localCursorPos = selectedEnt:WorldToLocal( cursorPos )
+
+        local pos = selectedEnt:LocalToWorld( localCursorPos - state.selectedEntFirstCursor )
+        local ang = selectedEnt:GetAngles()
+
+        if IsValid( self.ghostEnt ) then
+            self.ghostEnt:SetPos( pos )
+            self.ghostEnt:SetAngles( ang )
+        else
+            self.ghostEnt = ClientsideModel( selectedEnt:GetModel() )
+            self.ghostEnt:SetPos( pos )
+            self.ghostEnt:SetAngles( ang )
+            self.ghostEnt:Spawn()
+
+            self.ghostEnt:SetColor( cursor.selectedColor )
+            self.ghostEnt:SetRenderMode( RENDERMODE_NORMAL )
+            self.ghostEnt:SetMaterial( "models/wireframe" )
+            self.ghostEnt:DrawShadow( false )
+        end
+
+    elseif IsValid( self.ghostEnt ) then
+        self.ghostEnt:Remove()
+    end
 end
