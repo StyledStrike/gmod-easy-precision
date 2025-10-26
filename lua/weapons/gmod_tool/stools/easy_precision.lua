@@ -62,6 +62,14 @@ local function GetTraceEntity( trace )
     end
 end
 
+function TOOL:GetClientVector( name, default, min, max )
+    local x = math.Clamp( self:GetClientNumber( name .. "_x", default ), min, max )
+    local y = math.Clamp( self:GetClientNumber( name .. "_y", default ), min, max )
+    local z = math.Clamp( self:GetClientNumber( name .. "_z", default ), min, max )
+
+    return x, y, z
+end
+
 local WorldToLocal = WorldToLocal
 local LocalToWorld = LocalToWorld
 
@@ -122,9 +130,10 @@ function TOOL:LeftClick( trace )
 
             elseif self:GetClientNumber( "stick_cursor_to_grid", 0 ) > 0 then
                 -- Snap cursor to grid, if enabled
-                cursorPos[1] = SnapToGrid( cursorPos[1], self:GetClientNumber( "grid_snap_x", 10 ) )
-                cursorPos[2] = SnapToGrid( cursorPos[2], self:GetClientNumber( "grid_snap_y", 10 ) )
-                cursorPos[3] = SnapToGrid( cursorPos[3], self:GetClientNumber( "grid_snap_z", 10 ) )
+                local x, y, z = self:GetClientVector( "grid_snap", 10, 0.1, 1000 )
+                cursorPos[1] = SnapToGrid( cursorPos[1], x )
+                cursorPos[2] = SnapToGrid( cursorPos[2], y )
+                cursorPos[3] = SnapToGrid( cursorPos[3], z )
             end
 
             -- Move the entity to the current cursor position, plus
@@ -172,19 +181,21 @@ function TOOL:Reload( trace )
             ent:SetAngles( Angle( 0, 0, 0 ) )
         else
             local ang = ent:GetAngles()
+            local x, y, z = self:GetClientVector( "angle_snap", 45, 1, 180 )
 
-            ang[1] = SnapToGrid( ang[1], self:GetClientNumber( "angle_snap_x", 45 ) )
-            ang[2] = SnapToGrid( ang[2], self:GetClientNumber( "angle_snap_y", 45 ) )
-            ang[3] = SnapToGrid( ang[3], self:GetClientNumber( "angle_snap_z", 45 ) )
+            ang[1] = SnapToGrid( ang[1], x )
+            ang[2] = SnapToGrid( ang[2], y )
+            ang[3] = SnapToGrid( ang[3], z )
 
             ent:SetAngles( ang )
         end
 
         local pos = ent:GetPos()
+        local x, y, z = self:GetClientVector( "grid_snap", 10, 0.1, 1000 )
 
-        pos[1] = SnapToGrid( pos[1], self:GetClientNumber( "grid_snap_x", 10 ) )
-        pos[2] = SnapToGrid( pos[2], self:GetClientNumber( "grid_snap_y", 10 ) )
-        pos[3] = SnapToGrid( pos[3], self:GetClientNumber( "grid_snap_z", 10 ) )
+        pos[1] = SnapToGrid( pos[1], x )
+        pos[2] = SnapToGrid( pos[2], y )
+        pos[3] = SnapToGrid( pos[3], z )
 
         ent:SetPos( pos )
     end
@@ -393,9 +404,10 @@ function TOOL:DrawHUD()
         cursorPos = trace.HitPos
 
         if self:GetClientNumber( "stick_cursor_to_grid", 0 ) > 0 then
-            cursorPos[1] = SnapToGrid( cursorPos[1], self:GetClientNumber( "grid_snap_x", 10 ) )
-            cursorPos[2] = SnapToGrid( cursorPos[2], self:GetClientNumber( "grid_snap_y", 10 ) )
-            cursorPos[3] = SnapToGrid( cursorPos[3], self:GetClientNumber( "grid_snap_z", 10 ) )
+            local x, y, z = self:GetClientVector( "grid_snap", 10, 0.1, 1000 )
+            cursorPos[1] = SnapToGrid( cursorPos[1], x )
+            cursorPos[2] = SnapToGrid( cursorPos[2], y )
+            cursorPos[3] = SnapToGrid( cursorPos[3], z )
         end
     end
 
