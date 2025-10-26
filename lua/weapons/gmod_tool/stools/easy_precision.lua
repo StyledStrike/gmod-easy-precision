@@ -65,13 +65,20 @@ end
 local WorldToLocal = WorldToLocal
 local LocalToWorld = LocalToWorld
 
-local function GetNearestEdge( ent, aabbSize, worldPos, snapDivisions )
-    snapDivisions = math.Clamp( snapDivisions, 1, 10 )
+function TOOL:GetNearestEdge( ent, aabbSize, worldPos )
+    local snapDivisions = math.Clamp( self:GetClientNumber( "snap_divisions", 2 ), 1, 10 )
 
     -- Convert the position to the ent's local coords,
     -- using the bounding box center as the origin.
     local boxCenter = ent:LocalToWorld( ent:OBBCenter() )
     local pos = WorldToLocal( worldPos, Angle(), boxCenter, ent:GetAngles() )
+
+    -- If the tool user is holding ALT, always return the bounding box center
+    local user = self:GetOwner()
+
+    if IsValid( user ) and user:KeyDown( IN_WALK ) then
+        return boxCenter
+    end
 
     -- Snap the local position to the nearest AABB edge
     local snapSize = aabbSize * ( 0.5 / snapDivisions )
@@ -97,7 +104,7 @@ function TOOL:LeftClick( trace )
 
         if SERVER then
             -- Get where the snapped cursor is placed on the entity
-            local cursorPos = GetNearestEdge( ent, GetAABBSize( ent ), trace.HitPos, self:GetClientNumber( "snap_divisions", 2 ) )
+            local cursorPos = self:GetNearestEdge( ent, GetAABBSize( ent ), trace.HitPos )
 
             -- Remember the entity and where the cursor was on it
             self:SetObject( 1, ent, cursorPos, nil, 0, Vector( 0, 0, 1 ) )
@@ -111,7 +118,7 @@ function TOOL:LeftClick( trace )
 
             if IsValid( ent ) then
                 -- Snap cursor to the edge of the current entity being aimed at
-                cursorPos = GetNearestEdge( ent, GetAABBSize( ent ), cursorPos, self:GetClientNumber( "snap_divisions", 2 ) )
+                cursorPos = self:GetNearestEdge( ent, GetAABBSize( ent ), cursorPos )
 
             elseif self:GetClientNumber( "stick_cursor_to_grid", 0 ) > 0 then
                 -- Snap cursor to grid, if enabled
@@ -159,9 +166,9 @@ function TOOL:Reload( trace )
         local phys = ent:GetPhysicsObject()
         phys:EnableMotion( false )
 
-        local owner = self:GetOwner()
+        local user = self:GetOwner()
 
-        if owner:KeyDown( IN_USE ) then
+        if user:KeyDown( IN_USE ) then
             ent:SetAngles( Angle( 0, 0, 0 ) )
         else
             local ang = ent:GetAngles()
@@ -206,8 +213,8 @@ if SERVER then
     function TOOL:ApplyConstraints( entA, entB )
         if not ( IsValid( entA ) and IsValid( entB ) ) then return end
 
-        local owner = self:GetOwner()
-        if not owner:CheckLimit( "constraints" ) then return end
+        local user = self:GetOwner()
+        if not user:CheckLimit( "constraints" ) then return end
 
         local doNoCollide = self:GetClientNumber( "constraint_nocollide", 0 ) > 0
         local doWeld = self:GetClientNumber( "constraint_weld", 0 ) > 0
@@ -217,30 +224,30 @@ if SERVER then
             if not IsValid( c ) then return end
 
             undo.Create( "Weld" )
-            undo.SetPlayer( owner )
+            undo.SetPlayer( user )
             undo.AddEntity( c )
             undo.Finish()
 
-            owner:AddCount( "constraints", c )
-            owner:AddCleanup( "constraints", c )
+            user:AddCount( "constraints", c )
+            user:AddCleanup( "constraints", c )
 
         elseif doNoCollide then
             local c = constraint.NoCollide( entA, entB, 0, 0 )
             if not IsValid( c ) then return end
 
             undo.Create( "NoCollide" )
-            undo.SetPlayer( owner )
+            undo.SetPlayer( user )
             undo.AddEntity( c )
             undo.Finish()
 
-            owner:AddCount( "constraints", c )
-            owner:AddCleanup( "nocollide", c )
+            user:AddCount( "constraints", c )
+            user:AddCleanup( "nocollide", c )
         end
     end
 
     function TOOL:Think()
-        local owner = self:GetOwner()
-        if not IsValid( owner ) then return end
+        local user = self:GetOwner()
+        if not IsValid( user ) then return end
 
         local state = self.syncState
         if not state then return end
@@ -285,10 +292,10 @@ if SERVER then
                 net.WriteEntity( NULL )
             end
 
-            net.Send( owner )
+            net.Send( user )
         end
 
-        local aimEnt = GetTraceEntity( owner:GetEyeTrace() )
+        local aimEnt = GetTraceEntity( user:GetEyeTrace() )
 
         if state.aimEnt ~= aimEnt then
             state.aimEnt = aimEnt
@@ -360,11 +367,14 @@ net.Receive( "easy_precision.state", function()
     end
 end )
 
-local cursor = {
-    pivotColor = Color( 50, 50, 50 ),
-    aimColor = Color( 0, 150, 255 ),
-    selectedColor = Color( 50, 255, 0 ),
+local colors = {
+    pivot = Color( 50, 50, 50 ),
+    aim = Color( 0, 150, 255 ),
+    selected = Color( 50, 255, 0 ),
+    forceCenter = Color( 255, 150, 0 ),
 }
+
+local DrawLine = render.DrawLine
 
 function TOOL:DrawHUD()
     local state = self.syncState
@@ -377,7 +387,7 @@ function TOOL:DrawHUD()
     local cursorPos
 
     if IsValid( state.aimEnt ) and state.aimEnt == GetTraceEntity( trace ) then
-        cursorPos = GetNearestEdge( state.aimEnt, state.aimEntAABBSize, trace.HitPos, self:GetClientNumber( "snap_divisions", 2 ) )
+        cursorPos = self:GetNearestEdge( state.aimEnt, state.aimEntAABBSize, trace.HitPos )
 
     elseif stage > 0 then
         cursorPos = trace.HitPos
@@ -391,26 +401,30 @@ function TOOL:DrawHUD()
 
     if cursorPos then
         local pulse = 0.6 + math.sin( RealTime() * 8 ) * 0.4
-        local color = stage > 0 and cursor.selectedColor or cursor.aimColor
+        local color = stage > 0 and colors.selected or colors.aim
+
+        if user:KeyDown( IN_WALK ) then
+            color = colors.forceCenter
+        end
 
         cam.Start3D()
         render.SetColorMaterialIgnoreZ()
         render.SetColorModulation( 0, pulse * 0.3, pulse )
         render.SuppressEngineLighting( true )
 
-        render.DrawSphere( cursorPos, 1.5, 6, 6, cursor.pivotColor )
+        render.DrawSphere( cursorPos, 1.5, 6, 6, colors.pivot )
         render.DrawSphere( cursorPos, 1, 6, 6, color )
 
         local offset = Vector( 15, 0, 0 )
-        render.DrawLine( cursorPos - offset, cursorPos + offset, color, false )
+        DrawLine( cursorPos - offset, cursorPos + offset, color, false )
 
         offset[1] = 0
         offset[2] = 15
-        render.DrawLine( cursorPos - offset, cursorPos + offset, color, false )
+        DrawLine( cursorPos - offset, cursorPos + offset, color, false )
 
         offset[2] = 0
         offset[3] = 15
-        render.DrawLine( cursorPos - offset, cursorPos + offset, color, false )
+        DrawLine( cursorPos - offset, cursorPos + offset, color, false )
 
         render.SuppressEngineLighting( false )
         render.SetColorModulation( 1, 1, 1 )
@@ -434,7 +448,7 @@ function TOOL:DrawHUD()
             self.ghostEnt:SetAngles( ang )
             self.ghostEnt:Spawn()
 
-            self.ghostEnt:SetColor( cursor.selectedColor )
+            self.ghostEnt:SetColor( colors.selected )
             self.ghostEnt:SetRenderMode( RENDERMODE_NORMAL )
             self.ghostEnt:SetMaterial( "models/wireframe" )
             self.ghostEnt:DrawShadow( false )
