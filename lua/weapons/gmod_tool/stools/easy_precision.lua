@@ -4,6 +4,8 @@ TOOL.Name = "#tool.easy_precision.name"
 TOOL.ClientConVar = {
     constraint_weld = "0",
     constraint_nocollide = "1",
+
+    snap_divisions = "1",
     stick_cursor_to_grid = "1",
 
     grid_snap_x = "10",
@@ -63,14 +65,16 @@ end
 local WorldToLocal = WorldToLocal
 local LocalToWorld = LocalToWorld
 
-local function GetNearestEdge( ent, aabbSize, worldPos )
+local function GetNearestEdge( ent, aabbSize, worldPos, snapDivisions )
+    snapDivisions = math.Clamp( snapDivisions, 1, 10 )
+
     -- Convert the position to the ent's local coords,
     -- using the bounding box center as the origin.
     local boxCenter = ent:LocalToWorld( ent:OBBCenter() )
     local pos = WorldToLocal( worldPos, Angle(), boxCenter, ent:GetAngles() )
 
     -- Snap the local position to the nearest AABB edge
-    local snapSize = aabbSize * 0.5
+    local snapSize = aabbSize * ( 0.5 / snapDivisions )
 
     pos[1] = SnapToGrid( pos[1], snapSize[1] )
     pos[2] = SnapToGrid( pos[2], snapSize[2] )
@@ -93,7 +97,7 @@ function TOOL:LeftClick( trace )
 
         if SERVER then
             -- Get where the snapped cursor is placed on the entity
-            local cursorPos = GetNearestEdge( ent, GetAABBSize( ent ), trace.HitPos )
+            local cursorPos = GetNearestEdge( ent, GetAABBSize( ent ), trace.HitPos, self:GetClientNumber( "snap_divisions", 2 ) )
 
             -- Remember the entity and where the cursor was on it
             self:SetObject( 1, ent, cursorPos, nil, 0, Vector( 0, 0, 1 ) )
@@ -107,7 +111,7 @@ function TOOL:LeftClick( trace )
 
             if IsValid( ent ) then
                 -- Snap cursor to the edge of the current entity being aimed at
-                cursorPos = GetNearestEdge( ent, GetAABBSize( ent ), cursorPos )
+                cursorPos = GetNearestEdge( ent, GetAABBSize( ent ), cursorPos, self:GetClientNumber( "snap_divisions", 2 ) )
 
             elseif self:GetClientNumber( "stick_cursor_to_grid", 0 ) > 0 then
                 -- Snap cursor to grid, if enabled
@@ -307,6 +311,8 @@ function TOOL.BuildCPanel( p )
 
     p:AddControl( "CheckBox", { Label = "#tool.weld.name", Command = "easy_precision_constraint_weld" } )
     p:AddControl( "CheckBox", { Label = "#tool.nocollide", Command = "easy_precision_constraint_nocollide" } )
+
+    p:AddControl( "Slider", { Label = "#tool.easy_precision.snap_divisions", Command = "easy_precision_snap_divisions", Min = 1, Max = 10 } )
     p:AddControl( "CheckBox", { Label = "#tool.easy_precision.stick_cursor_to_grid", Command = "easy_precision_stick_cursor_to_grid" } )
 
     p:AddControl( "Slider", { Label = "#tool.easy_precision.grid_snap_x", Command = "easy_precision_grid_snap_x", Type = "Float", Min = 0.1, Max = 1000 } )
@@ -371,7 +377,7 @@ function TOOL:DrawHUD()
     local cursorPos
 
     if IsValid( state.aimEnt ) and state.aimEnt == GetTraceEntity( trace ) then
-        cursorPos = GetNearestEdge( state.aimEnt, state.aimEntAABBSize, trace.HitPos )
+        cursorPos = GetNearestEdge( state.aimEnt, state.aimEntAABBSize, trace.HitPos, self:GetClientNumber( "snap_divisions", 2 ) )
 
     elseif stage > 0 then
         cursorPos = trace.HitPos
