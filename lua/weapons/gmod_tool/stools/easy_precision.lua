@@ -117,7 +117,7 @@ function TOOL:LeftClick( trace )
             end
 
             -- Move the entity to the current cursor position, plus
-            -- the the cursor offset from the entity was first selected.
+            -- the cursor offset from when the entity was first selected.
             local selectedEnt = self:GetEnt( 1 )
             local firstCursorPos = self:GetPos( 1 )
             local offset = selectedEnt:GetPos() - firstCursorPos
@@ -243,7 +243,8 @@ if SERVER then
 
         -- The tool's client-side needs to know the server-side state,
         -- to place the cursor and ghost correctly on the screen.
-        -- We do it here periodically, trying to avoid spamming the net event.
+        -- We send that state periodically in here, while
+        -- trying to avoid spamming the net event.
         local t = RealTime()
 
         if state.isDirty and t > ( state.nextSync or 0 ) then
