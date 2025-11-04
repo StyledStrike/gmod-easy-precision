@@ -171,7 +171,7 @@ end
 function TOOL:Reload( trace )
     local ent = GetTraceEntity( trace )
 
-    if SERVER then
+    if SERVER and ent ~= nil then
         local phys = ent:GetPhysicsObject()
         phys:EnableMotion( false )
 
@@ -200,7 +200,7 @@ function TOOL:Reload( trace )
         ent:SetPos( pos )
     end
 
-    return IsValid( ent )
+    return ent ~= nil
 end
 
 function TOOL:Deploy()
