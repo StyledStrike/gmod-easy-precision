@@ -276,15 +276,20 @@ if SERVER then
             net.Start( "easy_precision.state", false )
 
             if IsValid( state.aimEnt ) then
-                net.WriteEntity( state.aimEnt )
-
                 local phys = state.aimEnt:GetPhysicsObject()
-                local mins, maxs = phys:GetAABB()
-                local size = maxs - mins
 
-                net.WriteFloat( size[1] )
-                net.WriteFloat( size[2] )
-                net.WriteFloat( size[3] )
+                if IsValid( phys ) then
+                    net.WriteEntity( state.aimEnt )
+
+                    local mins, maxs = phys:GetAABB()
+                    local size = maxs - mins
+
+                    net.WriteFloat( size[1] )
+                    net.WriteFloat( size[2] )
+                    net.WriteFloat( size[3] )
+                else
+                    net.WriteEntity( NULL )
+                end
             else
                 net.WriteEntity( NULL )
             end
