@@ -27,6 +27,10 @@ if CLIENT then
     }
 end
 
+if SERVER then
+    resource.AddWorkshop( "2971955200" )
+end
+
 local IsValid = IsValid
 
 local function SnapToGrid( value, gridSpacing )
